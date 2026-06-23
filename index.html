@@ -1372,10 +1372,13 @@ document.querySelectorAll('.ach-num[data-target]').forEach(el => cObs.observe(el
 // ── CONTACT FORM
 function sendMsg() {
   const fn = document.getElementById('fn').value.trim();
+  const ln = document.getElementById('ln').value.trim();
   const em = document.getElementById('em').value.trim();
+  const sb = document.getElementById('sb').value.trim();
   const msg = document.getElementById('msg').value.trim();
   const fmsg = document.getElementById('fmsg');
   fmsg.className = 'fmsg';
+
   if (!fn || !em || !msg) {
     fmsg.textContent = 'Please fill in your name, email, and message.';
     fmsg.className = 'fmsg err'; return;
@@ -1384,14 +1387,40 @@ function sendMsg() {
     fmsg.textContent = 'Please enter a valid email address.';
     fmsg.className = 'fmsg err'; return;
   }
+
   const btn = document.getElementById('sbtn');
-  btn.textContent = 'Sending...'; btn.disabled = true;
-  setTimeout(() => {
-    fmsg.textContent = "Message sent — I'll respond within 24 hours.";
-    fmsg.className = 'fmsg ok';
-    btn.textContent = 'Send Message'; btn.disabled = false;
-    ['fn','ln','em','sb','msg'].forEach(id => document.getElementById(id).value = '');
-  }, 1000);
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+
+  fetch('https://formspree.io/f/xjgqkvlb', {
+    method: 'POST',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: fn + ' ' + ln,
+      email: em,
+      subject: sb,
+      message: msg
+    })
+  })
+  .then(res => {
+    if (res.ok) {
+      fmsg.textContent = 'Message sent! I will get back to you within 24 hours.';
+      fmsg.className = 'fmsg ok';
+      ['fn','ln','em','sb','msg'].forEach(id => document.getElementById(id).value = '');
+    } else {
+      return res.json().then(data => {
+        throw new Error(data.errors ? data.errors.map(e => e.message).join(', ') : 'Submission failed.');
+      });
+    }
+  })
+  .catch(err => {
+    fmsg.textContent = 'Something went wrong. Please email me directly at yogendarp11@gmail.com';
+    fmsg.className = 'fmsg err';
+  })
+  .finally(() => {
+    btn.textContent = 'Send Message';
+    btn.disabled = false;
+  });
 }
 
 // ── PREMIUM CURSOR SYSTEM ─────────────────────────────
