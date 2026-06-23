@@ -31,21 +31,7 @@ body {
 a { color: inherit; text-decoration: none; }
 img { display: block; max-width: 100%; }
 
-/* ─────────────────────────────────────────────
-   CURSOR SPOTLIGHT
-───────────────────────────────────────────── */
-#spotlight {
-  position: fixed;
-  width: 500px;
-  height: 500px;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 0;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(255,255,255,0.04) 0%, transparent 70%);
-  transition: opacity 0.3s;
-  will-change: transform;
-}
+
 
 /* ─────────────────────────────────────────────
    AMBIENT BACKGROUND
@@ -711,9 +697,106 @@ footer {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   #spotlight { display: none; }
 }
+
+/* ─────────────────────────────────────────────
+   PREMIUM CURSOR SYSTEM
+   - Hides native cursor site-wide
+   - Main dot: white, sharp, instant tracking
+   - Ring: semi-transparent, delayed follow
+   - Spotlight: large soft glow, very low opacity
+   - Hover states: ring expands + brightens
+   - GPU-accelerated via transform: translate3d
+───────────────────────────────────────────── */
+
+/* Hide default cursor everywhere */
+*, *::before, *::after { cursor: none !important; }
+
+/* Cursor elements */
+#cur-dot,
+#cur-ring {
+  position: fixed;
+  top: 0; left: 0;
+  pointer-events: none;
+  z-index: 99999;
+  border-radius: 50%;
+  will-change: transform;
+  /* GPU layer promotion */
+  transform: translate3d(-50%, -50%, 0);
+  backface-visibility: hidden;
+}
+
+/* Main dot — instant, crisp */
+#cur-dot {
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  opacity: 0.9;
+  /* No transition — follows mouse directly */
+}
+
+/* Outer ring — delayed, semi-transparent */
+#cur-ring {
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  /* Smooth size/opacity transitions only — position done in JS */
+  transition:
+    width 0.25s cubic-bezier(0.23, 1, 0.32, 1),
+    height 0.25s cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 0.25s ease,
+    opacity 0.25s ease;
+  opacity: 1;
+}
+
+/* Hover state — ring expands and brightens */
+#cur-ring.hovered {
+  width: 48px;
+  height: 48px;
+  border-color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Click state — ring snaps inward briefly */
+#cur-ring.clicked {
+  width: 22px;
+  height: 22px;
+  border-color: rgba(255, 255, 255, 0.9);
+  transition-duration: 0.1s;
+}
+
+/* Spotlight */
+#cur-spotlight {
+  position: fixed;
+  top: 0; left: 0;
+  width: 480px;
+  height: 480px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform;
+  transform: translate3d(-50%, -50%, 0);
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.038) 0%,
+    rgba(255, 255, 255, 0.012) 40%,
+    transparent 70%
+  );
+  /* Very slow follow — purely ambient */
+  transition: opacity 0.4s ease;
+  opacity: 0;
+  backface-visibility: hidden;
+}
+#cur-spotlight.visible { opacity: 1; }
+
 </style>
 </head>
 <body>
+
+<!-- ─── PREMIUM CURSOR ─── -->
+<div id="cur-dot"></div>
+<div id="cur-ring"></div>
+<div id="cur-spotlight"></div>
 
 <!-- LOADER -->
 <div id="loader">
@@ -724,7 +807,7 @@ footer {
 </div>
 
 <!-- CURSOR SPOTLIGHT -->
-<div id="spotlight"></div>
+
 
 <!-- SCROLL PROGRESS -->
 <div id="scroll-bar"></div>
@@ -1230,20 +1313,6 @@ window.addEventListener('load', () => {
   setTimeout(() => document.getElementById('loader').classList.add('gone'), 1100);
 });
 
-// ── SPOTLIGHT CURSOR
-(function () {
-  if (window.matchMedia('(pointer: coarse)').matches) return;
-  const el = document.getElementById('spotlight');
-  let tx = 0, ty = 0, cx = 0, cy = 0;
-  document.addEventListener('mousemove', e => { tx = e.clientX; ty = e.clientY; });
-  (function loop() {
-    cx += (tx - cx) * 0.09;
-    cy += (ty - cy) * 0.09;
-    el.style.left = cx + 'px';
-    el.style.top = cy + 'px';
-    requestAnimationFrame(loop);
-  })();
-})();
 
 // ── SCROLL EVENTS
 window.addEventListener('scroll', () => {
@@ -1324,6 +1393,104 @@ function sendMsg() {
     ['fn','ln','em','sb','msg'].forEach(id => document.getElementById(id).value = '');
   }, 1000);
 }
+
+// ── PREMIUM CURSOR SYSTEM ─────────────────────────────
+(function () {
+  // Disable on touch / mobile
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    document.body.style.cursor = 'auto';
+    return;
+  }
+
+  const dot       = document.getElementById('cur-dot');
+  const ring      = document.getElementById('cur-ring');
+  const spotlight = document.getElementById('cur-spotlight');
+
+  // Raw mouse position (updated synchronously)
+  let mouseX = window.innerWidth  / 2;
+  let mouseY = window.innerHeight / 2;
+
+  // Interpolated positions for ring & spotlight (updated in rAF loop)
+  let ringX  = mouseX, ringY  = mouseY;
+  let spotX  = mouseX, spotY  = mouseY;
+
+  // Track mouse — dot follows instantly via direct style write
+  document.addEventListener('mousemove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    // Dot: zero-lag, direct DOM write — feels native-fast
+    dot.style.transform = `translate3d(calc(${mouseX}px - 50%), calc(${mouseY}px - 50%), 0)`;
+
+    // Show spotlight once mouse has moved
+    spotlight.classList.add('visible');
+  }, { passive: true });
+
+  // Hide cursors when mouse leaves the window
+  document.addEventListener('mouseleave', () => {
+    dot.style.opacity = '0';
+    ring.style.opacity = '0';
+    spotlight.classList.remove('visible');
+  });
+  document.addEventListener('mouseenter', () => {
+    dot.style.opacity = '0.9';
+    ring.style.opacity = '1';
+  });
+
+  // Ring & spotlight: smooth interpolation at 60fps
+  const RING_EASE = 0.12;   // ring lag factor  (lower = more lag)
+  const SPOT_EASE = 0.06;   // spotlight lag factor (very slow — ambient)
+
+  function tick() {
+    // Lerp ring toward mouse
+    ringX += (mouseX - ringX) * RING_EASE;
+    ringY += (mouseY - ringY) * RING_EASE;
+    ring.style.transform = `translate3d(calc(${ringX}px - 50%), calc(${ringY}px - 50%), 0)`;
+
+    // Lerp spotlight (much slower)
+    spotX += (mouseX - spotX) * SPOT_EASE;
+    spotY += (mouseY - spotY) * SPOT_EASE;
+    spotlight.style.transform = `translate3d(calc(${spotX}px - 50%), calc(${spotY}px - 50%), 0)`;
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ── HOVER EFFECTS ──────────────────────────────────
+  // Selector covers buttons, nav links, social icons,
+  // project cards, cert rows, links, and interactive elements
+  const HOVER_TARGETS = [
+    'a', 'button',
+    '.proj-card', '.cert-row', '.ach-card', '.edu-row',
+    '.soc', '.clink', '.skill-tag', '.nav-resume-btn',
+    '#dlBtn', '#sbtn', '.skill-block',
+  ].join(',');
+
+  function setHover(on) {
+    ring.classList.toggle('hovered', on);
+    dot.style.opacity = on ? '1' : '0.9';
+  }
+
+  // Use event delegation on document for performance
+  document.addEventListener('mouseover', e => {
+    if (e.target.closest(HOVER_TARGETS)) setHover(true);
+  }, { passive: true });
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest(HOVER_TARGETS)) setHover(false);
+  }, { passive: true });
+
+  // ── CLICK FEEDBACK ─────────────────────────────────
+  document.addEventListener('mousedown', () => {
+    ring.classList.add('clicked');
+    dot.style.transform = dot.style.transform; // force repaint
+  });
+  document.addEventListener('mouseup', () => {
+    ring.classList.remove('clicked');
+  });
+
+})();
+// ─────────────────────────────────────────────────────
+
 </script>
 </body>
 </html>
